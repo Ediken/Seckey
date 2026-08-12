@@ -1,0 +1,15 @@
+# 编译产物
+*.o
+*.obj
+*.exe
+*.so
+*.a
+
+# 目录
+build/
+Debug/
+Release/
+.vs/
+
+# Qt 项目临时文件
+*.pro.user
