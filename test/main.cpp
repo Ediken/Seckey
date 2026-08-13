@@ -1,21 +1,82 @@
 // ============================================================
-// 编解码模块测试程序
-// 目标：验证"RequestMsg → 编码 → 字节流 → 解码 → RequestMsg"
-//       以及"RespondMsg → 编码 → 字节流 → 解码 → RespondMsg"
-// 全链路跑通，亲眼看到多态 + 工厂在工作
+// 测试程序：编解码 + 网络通信
+// 目标：
+//   1. 编解码往返（RequestMsg/RespondMsg 编码→解码）
+//   2. 网络收发（客户端 sendMsg / 服务端 recvMsg，长度头防粘包）
 // ============================================================
 #include <iostream>
 #include <string.h>
+#include <unistd.h>          // usleep
+#include <pthread.h>         // 线程
 
 #include "RequestCodec.h"
 #include "RespondCodec.h"
 #include "CodecFactory.h"
 #include "RequestFactory.h"
 #include "RespondFactory.h"
+#include "TcpServer.h"
+#include "TcpSocket.h"
 
 using namespace std;
 
-// 测试1：请求报文的编码/解码往返
+// ---------- 网络测试需要的全局变量（线程间传递结果用）----------
+static int g_netResult = -1;   // 服务端线程的测试结果：0=通过
+
+// ---------- 服务端线程函数：监听、accept、收数据、回数据 ----------
+void* serverThread(void* arg)
+{
+    // 1. 创建服务端，监听 9898 端口
+    TcpServer server;
+    if (server.setListen(9898) < 0)
+    {
+        cout << "[服务端] setListen 失败" << endl;
+        g_netResult = -1;
+        return NULL;
+    }
+    cout << "[服务端] 监听 9898 端口..." << endl;
+
+    // 2. accept 等待客户端连接（阻塞）
+    TcpSocket* sock = server.acceptConn();
+    if (sock == NULL)
+    {
+        cout << "[服务端] accept 失败" << endl;
+        g_netResult = -1;
+        return NULL;
+    }
+    cout << "[服务端] 客户端已连接" << endl;
+
+    // 3. 连续收 2 条消息（验证长度头能正确切分粘包）
+    for (int i = 0; i < 2; i++)
+    {
+        char* recvData = NULL;
+        int   recvLen = 0;
+        if (sock->recvMsg(&recvData, recvLen) < 0)
+        {
+            cout << "[服务端] 第" << i+1 << "条 recvMsg 失败" << endl;
+            g_netResult = -1;
+            sock->disConnect();
+            delete sock;
+            return NULL;
+        }
+        cout << "[服务端] 收到第" << i+1 << "条: " << recvData
+             << " (长度" << recvLen << ")" << endl;
+        sock->freeMemory(&recvData);    // 释放收的数据
+    }
+
+    // 4. 回一条消息给客户端
+    char reply[] = "hello client, I am server";
+    sock->sendMsg(reply, strlen(reply));
+    cout << "[服务端] 已回复: " << reply << endl;
+
+    // 5. 收尾
+    sock->disConnect();
+    delete sock;
+    server.closefd();
+    g_netResult = 0;     // 全部成功
+    return NULL;
+}
+
+// ---------- 测试1：请求报文的编码/解码往返 ----------
 int testRequest()
 {
     cout << "===== 测试1: 请求报文 编码->解码 往返 =====" << endl;
@@ -75,7 +136,7 @@ int testRequest()
     return 0;
 }
 
-// 测试2：应答报文的编码/解码往返（结构与测试1对称）
+// ---------- 测试2：应答报文的编码/解码往返 ----------
 int testRespond()
 {
     cout << endl << "===== 测试2: 应答报文 编码->解码 往返 =====" << endl;
@@ -132,9 +193,62 @@ int testRespond()
     return 0;
 }
 
+// ---------- 网络测试主函数：起服务端线程 + 客户端 ----------
+int testNet()
+{
+    cout << endl << "===== 测试3: 网络收发(服务端线程+客户端) =====" << endl;
+
+    // 1. 启动服务端线程
+    pthread_t tid;
+    pthread_create(&tid, NULL, serverThread, NULL);
+
+    // 2. 主线程当客户端：等服务端先监听（睡一会儿，避免连不上）
+    usleep(500 * 1000);    // 500ms
+
+    // 3. 客户端连接
+    TcpSocket client;
+    if (client.connectToHost("127.0.0.1", 9898) < 0)
+    {
+        cout << "[客户端] 连接失败" << endl;
+        return -1;
+    }
+    cout << "[客户端] 已连接服务器" << endl;
+
+    // 4. 连续发 2 条消息（故意两条不同长度，验证长度头切分）
+    char msg1[] = "hello server, first msg";
+    char msg2[] = "second";
+    client.sendMsg(msg1, strlen(msg1));
+    client.sendMsg(msg2, strlen(msg2));
+    cout << "[客户端] 已发送2条消息" << endl;
+
+    // 5. 收服务端回复
+    char* recvData = NULL;
+    int   recvLen = 0;
+    if (client.recvMsg(&recvData, recvLen) < 0)
+    {
+        cout << "[客户端] 收回复失败" << endl;
+        return -1;
+    }
+    cout << "[客户端] 收到回复: " << recvData << " (长度" << recvLen << ")" << endl;
+    client.freeMemory(&recvData);
+
+    // 6. 断开
+    client.disConnect();
+
+    // 7. 等服务端线程结束，检查结果
+    pthread_join(tid, NULL);
+    if (g_netResult == 0)
+        cout << ">>> 测试3通过: 网络收发成功, 长度头切分正确!" << endl;
+    else
+        cout << ">>> 测试3失败" << endl;
+    return 0;
+}
+
+// ---------- 主函数 ----------
 int main()
 {
-    testRequest();
-    testRespond();
+    testRequest();     // 测试1：请求报文编解码往返
+    testRespond();     // 测试2：应答报文编解码往返
+    testNet();         // 测试3：网络收发
     return 0;
 }
