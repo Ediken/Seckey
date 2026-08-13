@@ -13,3 +13,4 @@ Release/
 
 # Qt 项目临时文件
 *.pro.user
+*.swp
