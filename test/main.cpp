@@ -58,8 +58,9 @@ void* serverThread(void* arg)
             delete sock;
             return NULL;
         }
-        cout << "[服务端] 收到第" << i+1 << "条: " << recvData
-             << " (长度" << recvLen << ")" << endl;
+	        cout << "[服务端] 收到第" << i+1 << "条: ";
+        for (int j = 0; j < recvLen; j++) cout << recvData[j];
+        cout << " (长度" << recvLen << ")" << endl;
         sock->freeMemory(&recvData);    // 释放收的数据
     }
 
@@ -229,7 +230,9 @@ int testNet()
         cout << "[客户端] 收回复失败" << endl;
         return -1;
     }
-    cout << "[客户端] 收到回复: " << recvData << " (长度" << recvLen << ")" << endl;
+    cout << "[客户端] 收到回复: ";
+    for (int i = 0; i < recvLen; i++) cout << recvData[i];
+    cout << " (长度" << recvLen << ")" << endl;
     client.freeMemory(&recvData);
 
     // 6. 断开
