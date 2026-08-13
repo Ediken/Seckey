@@ -1,6 +1,7 @@
 #include "SecKeyShm.h"
 #include <string.h>     // memset memcpy strcmp
 
+#include <cstdio>
 // ---------- 构造函数 ----------
 
 // 打开：只获取已存在的（不带 maxNode，布局未知，读取时用头部信息）

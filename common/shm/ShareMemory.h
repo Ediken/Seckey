@@ -4,6 +4,8 @@
 #include <sys/ipc.h>      // ftok
 #include <sys/shm.h>      // shmget shmat shmdt shmctl
 #include <stdlib.h>
+// ftok 的 proj_id 参数：用文件名生成 key 时的固定项目ID
+const char RandX = 'x';
 class ShareMemory
 {
 public:
