@@ -16,5 +16,14 @@ aux_source_directory(crypto COMMON_SRC)
 add_library(common STATIC ${COMMON_SRC})
 
 # 告诉 CMake：这个库的头文件在哪
-# 别的目录 #include "xxx.h" 时，能在这里找到
-target_include_directories(common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# 把 common 下所有子模块目录都加入头文件搜索路径
+# 这样客户端/服务端写 #include "RequestCodec.h" 时，
+# 编译器会在 common/ 和 common/codec/ 等目录里找
+target_include_directories(common PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/codec
+    ${CMAKE_CURRENT_SOURCE_DIR}/net
+    ${CMAKE_CURRENT_SOURCE_DIR}/shm
+    ${CMAKE_CURRENT_SOURCE_DIR}/log
+    ${CMAKE_CURRENT_SOURCE_DIR}/crypto
+)# 别的目录 #include "xxx.h" 时，能在这里找到
