@@ -20,4 +20,4 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(common)
 add_subdirectory(client)
 add_subdirectory(test)
-# add_subdirectory(server)   ← server 后面再放开
+add_subdirectory(server)
