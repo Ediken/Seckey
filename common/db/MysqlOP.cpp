@@ -76,3 +76,52 @@ int MysqlOP::writeSecKey(const char* clientId, const char* serverId, const char*
     }
     return 0;
 }
+// 查询最新一条可用密钥（state=0，按 keyid 倒序取第一条）
+int MysqlOP::getSecKey(const char* clientId, char* outSeckey, int* outKeyid)
+{
+    if (m_conn == NULL || clientId == NULL || outSeckey == NULL) return -1;
+
+    char sql[256];
+    sprintf(sql, "select seckey, keyid from seckeyinfo "
+                 "where clientid='%s' and state=0 order by keyid desc limit 1",
+            clientId);
+
+    if (mysql_query(m_conn, sql) != 0)
+    {
+        fprintf(stderr, "query error: %s\n", mysql_error(m_conn));
+        return -1;
+    }
+
+    MYSQL_RES* res = mysql_store_result(m_conn);
+    if (res == NULL) return -1;
+
+    MYSQL_ROW row = mysql_fetch_row(res);    // 取第一行
+    if (row == NULL)                          // 没有记录
+    {
+        mysql_free_result(res);
+        return -1;
+    }
+
+    // row[0]=seckey  row[1]=keyid
+    strcpy(outSeckey, row[0]);
+    if (outKeyid != NULL) *outKeyid = atoi(row[1]);
+
+    mysql_free_result(res);
+    return 0;
+}
+
+// 注销密钥：update seckeyinfo set state=1 where keyid=...
+int MysqlOP::revokeSecKey(int keyid)
+{
+    if (m_conn == NULL) return -1;
+
+    char sql[128];
+    sprintf(sql, "update seckeyinfo set state=1 where keyid=%d", keyid);
+
+    if (mysql_query(m_conn, sql) != 0)
+    {
+        fprintf(stderr, "update error: %s\n", mysql_error(m_conn));
+        return -1;
+    }
+    return 0;
+}

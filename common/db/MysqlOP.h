@@ -23,6 +23,15 @@ public:
     // 返回 0 成功 -1 失败
     int writeSecKey(const char* clientId, const char* serverId, const char* seckey);
 
+        // 查询最新一条可用密钥（校验/查看用）
+    // 输出: outSeckey(密钥字符串) outKeyid(密钥ID)
+    // 返回 0 找到 -1 没找到
+    int getSecKey(const char* clientId, char* outSeckey, int* outKeyid);
+
+    // 注销密钥：把 seckeyinfo 表里 keyid 对应记录置 state=1
+    // 返回 0 成功 -1 失败
+    int revokeSecKey(int keyid);
+
 private:
     MYSQL* m_conn;    // 连接句柄
 };

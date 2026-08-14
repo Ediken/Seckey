@@ -25,9 +25,9 @@ public:
     // 密钥协商（cmdType=1）—— 今天实现
     int secKeyAgree();
     // 密钥校验 / 注销 / 查看 —— 先占位，后续实现
-    int secKeyCheck() { return 0; }
-    int secKeyRevoke() { return 0; }
-    int secKeyView() { return 0; }
+    int secKeyCheck();
+    int secKeyRevoke();
+    int secKeyView();
 
 private:
     // 生成随机字符串（填入 r1 用）

@@ -48,15 +48,12 @@ int main()
             break;
         case RequestCodec::Check:          // 2 密钥校验（未实现）
             client.secKeyCheck();
-            printf("密钥校验功能开发中...\n");
             break;
         case RequestCodec::Revoke:         // 3 密钥注销（未实现）
             client.secKeyRevoke();
-            printf("密钥注销功能开发中...\n");
             break;
         case RequestCodec::View:           // 4 密钥查看（未实现）
             client.secKeyView();
-            printf("密钥查看功能开发中...\n");
             break;
         case 0:
             printf("再见!\n");

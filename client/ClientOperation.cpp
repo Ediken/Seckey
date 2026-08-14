@@ -182,3 +182,169 @@ int ClientOperation::secKeyAgree()
     delete factory; delete factory2;
     return 0;
 }
+
+// ------------------------------------------------------------
+// 密钥校验（cmdType=2）
+// 客户端: 把 SHA1(本地密钥) 发给服务端, 服务端比较后回 rv
+// ============================================================
+int ClientOperation::secKeyCheck()
+{
+    // 1. 从共享内存读本地密钥
+    NodeSHMInfo node;
+    memset(&node, 0, sizeof(node));
+    if (m_shm->shmRead(m_info.clientID, m_info.serverID, &node) != 0)
+    {
+        printf("[客户端] 本地没有密钥, 请先协商\n");
+        return -1;
+    }
+    printf("[客户端] 本地密钥: %s\n", node.seckey);
+
+    // 2. 算 SHA1(密钥) 作为校验码
+    unsigned char sha[20];
+    SHA1((const unsigned char*)node.seckey, strlen(node.seckey), sha);
+    char hashStr[41];
+    for (int i = 0; i < 20; i++) sprintf(hashStr + i * 2, "%02x", sha[i]);
+    hashStr[40] = '\0';
+    printf("[客户端] SHA1(密钥)=%s\n", hashStr);
+
+    // 3. 构造请求（authCode 字段放校验码）
+    RequestMsg msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.cmdType = RequestCodec::Check;         // =2 密钥校验
+    strcpy(msg.clientId, m_info.clientID);
+    strcpy(msg.serverId, m_info.serverID);
+    strcpy(msg.authCode, hashStr);             // 复用 authCode 字段传校验码
+
+    // 4. 编码发送接收解码（和协商一样的网络流程）
+    char* outData = NULL; int outLen = 0;
+    CodecFactory* f = new RequestFactory(&msg);
+    Codec* c = f->createCodec();
+    c->msgEncode(&outData, outLen);
+
+    if (m_socket.connectToHost(m_info.serverIP, m_info.serverPort) < 0)
+    {
+        printf("[客户端] 连接失败\n");
+        delete c; delete f;
+        return -1;
+    }
+    m_socket.sendMsg(outData, outLen);
+
+    char* inData = NULL; int inLen = 0;
+    if (m_socket.recvMsg(&inData, inLen) < 0)
+    {
+        printf("[客户端] 接收失败\n");
+        m_socket.disConnect();
+        delete c; delete f;
+        return -1;
+    }
+
+    CodecFactory* f2 = new RespondFactory();
+    Codec* c2 = f2->createCodec();
+    RespondMsg* pRsp = (RespondMsg*)c2->msgDecode(inData, inLen);
+    m_socket.freeMemory(&inData);
+
+    if (pRsp->rv == 0)
+        printf("[客户端] >>> 密钥校验通过: 两端密钥一致!\n");
+    else
+        printf("[客户端] >>> 密钥校验失败: 密钥不一致!\n");
+
+    m_socket.disConnect();
+    delete c; delete c2; delete f; delete f2;
+    return pRsp->rv;
+}
+
+// ------------------------------------------------------------
+// 密钥注销（cmdType=3）
+// 客户端把 seckeyid 发给服务端, 服务端置数据库 state=1
+// ============================================================
+int ClientOperation::secKeyRevoke()
+{
+    // 1. 从共享内存读密钥, 拿 seckeyID
+    NodeSHMInfo node;
+    memset(&node, 0, sizeof(node));
+    if (m_shm->shmRead(m_info.clientID, m_info.serverID, &node) != 0)
+    {
+        printf("[客户端] 本地没有密钥\n");
+        return -1;
+    }
+    printf("[客户端] 注销 seckeyid=%d\n", node.seckeyID);
+
+    // 2. 构造请求（r1 字段放 seckeyid 字符串）
+    RequestMsg msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.cmdType = RequestCodec::Revoke;        // =3 密钥注销
+    strcpy(msg.clientId, m_info.clientID);
+    strcpy(msg.serverId, m_info.serverID);
+    sprintf(msg.r1, "%d", node.seckeyID);      // 复用 r1 字段传 seckeyid
+
+    // 3. 编码发送接收解码
+    char* outData = NULL; int outLen = 0;
+    CodecFactory* f = new RequestFactory(&msg);
+    Codec* c = f->createCodec();
+    c->msgEncode(&outData, outLen);
+
+    m_socket.connectToHost(m_info.serverIP, m_info.serverPort);
+    m_socket.sendMsg(outData, outLen);
+
+    char* inData = NULL; int inLen = 0;
+    m_socket.recvMsg(&inData, inLen);
+
+    CodecFactory* f2 = new RespondFactory();
+    Codec* c2 = f2->createCodec();
+    RespondMsg* pRsp = (RespondMsg*)c2->msgDecode(inData, inLen);
+    m_socket.freeMemory(&inData);
+
+    if (pRsp->rv == 0)
+        printf("[客户端] >>> 密钥注销成功!\n");
+    else
+        printf("[客户端] >>> 密钥注销失败!\n");
+
+    m_socket.disConnect();
+    delete c; delete c2; delete f; delete f2;
+    return pRsp->rv;
+}
+
+// ------------------------------------------------------------
+// 密钥查看（cmdType=4）
+// 客户端请求, 服务端从数据库查出密钥通过应答 r2 字段返回
+// ============================================================
+int ClientOperation::secKeyView()
+{
+    // 1. 构造请求（只传 clientId 即可）
+    RequestMsg msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.cmdType = RequestCodec::View;          // =4 密钥查看
+    strcpy(msg.clientId, m_info.clientID);
+    strcpy(msg.serverId, m_info.serverID);
+
+    // 2. 编码发送接收解码
+    char* outData = NULL; int outLen = 0;
+    CodecFactory* f = new RequestFactory(&msg);
+    Codec* c = f->createCodec();
+    c->msgEncode(&outData, outLen);
+
+    m_socket.connectToHost(m_info.serverIP, m_info.serverPort);
+    m_socket.sendMsg(outData, outLen);
+
+    char* inData = NULL; int inLen = 0;
+    m_socket.recvMsg(&inData, inLen);
+
+    CodecFactory* f2 = new RespondFactory();
+    Codec* c2 = f2->createCodec();
+    RespondMsg* pRsp = (RespondMsg*)c2->msgDecode(inData, inLen);
+    m_socket.freeMemory(&inData);
+
+    if (pRsp->rv == 0)
+    {
+        printf("[客户端] 查看密钥: keyid=%d\n", pRsp->seckeyid);
+        printf("            seckey=%s\n", pRsp->r2);
+    }
+    else
+    {
+        printf("[客户端] 查无密钥\n");
+    }
+
+    m_socket.disConnect();
+    delete c; delete c2; delete f; delete f2;
+    return pRsp->rv;
+}

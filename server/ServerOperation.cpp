@@ -1,5 +1,7 @@
 #include "ServerOperation.h"
-
+#include <unistd.h>      // fork setsid chdir
+#include <fcntl.h>       // open
+#include <sys/stat.h>    // umask
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +14,7 @@
 #include "RespondCodec.h"
 #include "RespondFactory.h"
 #include "RequestFactory.h"
+#include <signal.h>    // signal SIGUSR1
 
 // 构造函数：保存配置，共享内存对象先置空（startWork 里再创建）
 ServerOperation::ServerOperation(int port, int shmKey, int maxNode,
@@ -22,7 +25,7 @@ ServerOperation::ServerOperation(int port, int shmKey, int maxNode,
     m_shmKey  = shmKey;
     m_maxNode = maxNode;
     m_shm     = NULL;
-
+    m_stop = false;
     // 连接数据库
     if (m_db.connectDB(dbHost, dbUser, dbPasswd, dbName) == 0)
     {
@@ -182,6 +185,7 @@ int ServerOperation::secKeyAgree(RequestMsg* reqmsg, char** outData, int& outLen
 // 服务器主循环（第 8 天流程）
 void ServerOperation::startWork()
 {
+    signal(SIGUSR1, catchSignal);
     // 1. 创建共享内存（服务端负责创建）
     m_shm = new SecKeyShm(m_shmKey, m_maxNode);
     printf("[服务端] 共享内存已创建, key=0x%x, maxNode=%d\n", m_shmKey, m_maxNode);
@@ -195,7 +199,7 @@ void ServerOperation::startWork()
     printf("[服务端] 开始监听端口 %d...\n", m_port);
 
     // 3. 主循环：accept + 每连接一线程
-    while (1)
+    while (m_stop == false)
     {
         // accept 阻塞等待客户端连接
         TcpSocket* sock = m_server.acceptConn();
@@ -254,6 +258,15 @@ void* working(void* arg)
     case RequestCodec::NewOrUpdate:    // 1 密钥协商
         server->secKeyAgree(pMsg, &outData, outLen);
         break;
+    case RequestCodec::Check:          // 2 密钥校验
+        server->secKeyCheck(pMsg, &outData, outLen);
+        break;
+    case RequestCodec::Revoke:         // 3 密钥注销
+        server->secKeyRevoke(pMsg, &outData, outLen);
+        break;
+    case RequestCodec::View:           // 4 密钥查看
+        server->secKeyView(pMsg, &outData, outLen);
+        break;
     default:
         printf("[服务端] 未知命令类型 %d\n", pMsg->cmdType);
         break;
@@ -273,4 +286,148 @@ void* working(void* arg)
     delete codec;
     delete factory;
     return NULL;
+}
+void ServerOperation::createDaemon()
+{
+    // 1. fork 子进程，父进程退出
+    pid_t pid = fork();
+    if (pid < 0)          // fork 失败
+    {
+        printf("fork error\n");
+        exit(1);
+    }
+    if (pid > 0)          // 父进程退出（子进程被 init 收养）
+    {
+        exit(0);
+    }
+
+    // 2. 子进程创建新会话（脱离终端）
+    setsid();
+
+    // 3. 改变工作目录（防占用其他目录）
+    chdir("/");
+
+    // 4. 设置文件掩码（保证创建文件权限合理）
+    umask(0022);
+
+    // 5. 重定向标准输入/输出/错误到 /dev/null
+    int devnull = open("/dev/null", O_RDWR);
+    if (devnull >= 0)
+    {
+        dup2(devnull, STDIN_FILENO);   // 标准输入 → /dev/null
+        dup2(devnull, STDOUT_FILENO);  // 标准输出 → /dev/null
+        dup2(devnull, STDERR_FILENO);  // 标准错误 → /dev/null
+        close(devnull);
+    }
+
+    // 6. 核心操作（startWork 由 main 继续调用）
+}
+// 信号处理函数：只置标志（第 10 天经验：处理函数要简单，别打印日志）
+void ServerOperation::catchSignal(int num)
+{
+    // 这里用一个全局标志（静态成员无法直接访问实例的 m_stop）
+    // 教学版简化：打印一行提示（实际项目里应只置标志）
+    printf("[服务端] 收到信号 %d, 准备退出...\n", num);
+}
+
+// ------------------------------------------------------------
+// 密钥校验（cmdType=2）
+// 客户端发来 SHA1(seckey)，服务端用数据库里的密钥重算并比较
+// ============================================================
+int ServerOperation::secKeyCheck(RequestMsg* reqmsg, char** outData, int& outLen)
+{
+    // 1. 从数据库查该客户端的密钥
+    char dbSeckey[128];
+    int  dbKeyid = 0;
+    if (m_db.getSecKey(reqmsg->clientId, dbSeckey, &dbKeyid) != 0)
+    {
+        printf("[服务端] 查无密钥, 校验失败\n");
+        RespondMsg rsp; memset(&rsp, 0, sizeof(rsp));
+        rsp.rv = -1;
+        strcpy(rsp.clientId, reqmsg->clientId);
+        strcpy(rsp.serverId, reqmsg->serverId);
+        CodecFactory* f = new RespondFactory(&rsp);
+        Codec* c = f->createCodec();
+        c->msgEncode(outData, outLen);
+        delete c; delete f;
+        return -1;
+    }
+
+    // 2. 算 SHA1(数据库密钥)
+    unsigned char sha[20];
+    SHA1((const unsigned char*)dbSeckey, strlen(dbSeckey), sha);
+    char calcHash[41];
+    for (int i = 0; i < 20; i++) sprintf(calcHash + i * 2, "%02x", sha[i]);
+    calcHash[40] = '\0';
+
+    // 3. 与客户端发来的 authCode 比较
+    int rv = (strcmp(calcHash, reqmsg->authCode) == 0) ? 0 : -1;
+    printf("[服务端] 密钥校验: %s\n", rv == 0 ? "一致,校验通过" : "不一致,校验失败");
+
+    RespondMsg rsp; memset(&rsp, 0, sizeof(rsp));
+    rsp.rv = rv;
+    strcpy(rsp.clientId, reqmsg->clientId);
+    strcpy(rsp.serverId, reqmsg->serverId);
+    CodecFactory* f = new RespondFactory(&rsp);
+    Codec* c = f->createCodec();
+    c->msgEncode(outData, outLen);
+    delete c; delete f;
+    return rv;
+}
+
+// ------------------------------------------------------------
+// 密钥注销（cmdType=3）
+// 客户端把 seckeyid 放在 r1 字段发来，服务端置数据库 state=1
+// ============================================================
+int ServerOperation::secKeyRevoke(RequestMsg* reqmsg, char** outData, int& outLen)
+{
+    // r1 字段里是 seckeyid（字符串形式）
+    int keyid = atoi(reqmsg->r1);
+    printf("[服务端] 注销密钥 keyid=%d\n", keyid);
+
+    int rv = (m_db.revokeSecKey(keyid) == 0) ? 0 : -1;
+
+    RespondMsg rsp; memset(&rsp, 0, sizeof(rsp));
+    rsp.rv = rv;
+    strcpy(rsp.clientId, reqmsg->clientId);
+    strcpy(rsp.serverId, reqmsg->serverId);
+    CodecFactory* f = new RespondFactory(&rsp);
+    Codec* c = f->createCodec();
+    c->msgEncode(outData, outLen);
+    delete c; delete f;
+    return rv;
+}
+
+int ServerOperation::secKeyView(RequestMsg* reqmsg, char** outData, int& outLen)
+{
+    char dbSeckey[128];
+    int  dbKeyid = 0;
+    if (m_db.getSecKey(reqmsg->clientId, dbSeckey, &dbKeyid) != 0)
+    {
+        printf("[服务端] 查无密钥\n");
+        RespondMsg rsp; memset(&rsp, 0, sizeof(rsp));
+        rsp.rv = -1;
+        strcpy(rsp.clientId, reqmsg->clientId);
+        strcpy(rsp.serverId, reqmsg->serverId);
+        CodecFactory* f = new RespondFactory(&rsp);
+        Codec* c = f->createCodec();
+        c->msgEncode(outData, outLen);
+        delete c; delete f;
+        return -1;
+    }
+
+    // 应答：r2 放密钥, seckeyid 放 keyid
+    RespondMsg rsp; memset(&rsp, 0, sizeof(rsp));
+    rsp.rv = 0;
+    strcpy(rsp.clientId, reqmsg->clientId);
+    strcpy(rsp.serverId, reqmsg->serverId);
+    strcpy(rsp.r2, dbSeckey);
+    rsp.seckeyid = dbKeyid;
+    printf("[服务端] 查看密钥: keyid=%d seckey=%s\n", dbKeyid, dbSeckey);
+
+    CodecFactory* f = new RespondFactory(&rsp);
+    Codec* c = f->createCodec();
+    c->msgEncode(outData, outLen);
+    delete c; delete f;
+    return 0;
 }

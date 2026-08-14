@@ -13,11 +13,18 @@ public:
 
     // 服务器开始工作（主循环：accept + 开线程）
     void startWork();
-
+    void createDaemon();
+    static void catchSignal(int num);
     // 密钥协商处理（子线程 working 里调用，所以是 public）
     // 输入：客户端请求 reqmsg
     // 输出：应答字节流 outData/outLen
     int secKeyAgree(RequestMsg* reqmsg, char** outData, int& outLen);
+
+        // 密钥校验 / 注销 / 查看
+    int secKeyCheck(RequestMsg* reqmsg, char** outData, int& outLen);
+    int secKeyRevoke(RequestMsg* reqmsg, char** outData, int& outLen);
+    int secKeyView(RequestMsg* reqmsg, char** outData, int& outLen);
+
     ServerOperation(int port, int shmKey, int maxNode,
                     const char* dbHost, const char* dbUser,
                     const char* dbPasswd, const char* dbName);   // 新增重载
@@ -32,7 +39,8 @@ private:
     int       m_maxNode;  // 共享内存最大节点数
     TcpServer m_server;   // 监听器
     SecKeyShm* m_shm;     // 共享内存（写密钥）
-    MysqlOP m_db;        // 数据库操作对象
+    MysqlOP m_db;        //db
+    bool m_stop;    // 停止标志
 };
 
 // ============================================================
