@@ -18,7 +18,6 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # 5. 依次加入子目录（顺序：先 common，因为它被 client/server 依赖）
 add_subdirectory(common)
+add_subdirectory(client)
 add_subdirectory(test)
-# 以后 client/server 写好了，就在这加两行：
-# add_subdirectory(client)
-# add_subdirectory(server)
+# add_subdirectory(server)   ← server 后面再放开

@@ -8,7 +8,8 @@
 #include <string.h>
 #include <unistd.h>          // usleep
 #include <pthread.h>         // 线程
-
+// 在文件顶部 include 区域加：
+#include "SecKeyShm.h"
 #include "RequestCodec.h"
 #include "RespondCodec.h"
 #include "CodecFactory.h"
@@ -247,11 +248,65 @@ int testNet()
     return 0;
 }
 
+// 共享内存测试：创建 → 写密钥 → 读密钥
+int testShm()
+{
+    cout << endl << "===== 测试4: 共享内存(创建/写/读) =====" << endl;
+
+    // 1. 创建共享内存（key=0x7788，最多 10 个节点）
+    //    注意：这是"创建"用的 key，测试程序自己约定
+    SecKeyShm shm(0x7788, 10);
+
+    // 2. 构造一条密钥记录
+    NodeSHMInfo node;
+    memset(&node, 0, sizeof(node));
+    node.status   = 1;                    // 1=已使用（0 表示空位）
+    node.seckeyID = 88;
+    strcpy(node.clientID, "1111");
+    strcpy(node.serverID, "0001");
+    strcpy(node.seckey, "abcdef1234567890abcdef1234567890");
+
+    // 3. 写入共享内存
+    if (shm.shmWrite(&node) == 0)
+        cout << "写入密钥成功: clientID=1111" << endl;
+    else
+        cout << "写入密钥失败!" << endl;
+
+    // 4. 读取共享内存（按 clientID+serverID 查）
+    NodeSHMInfo readNode;
+    memset(&readNode, 0, sizeof(readNode));
+    if (shm.shmRead("1111", "0001", &readNode) == 0)
+    {
+        cout << "读取密钥成功:" << endl;
+        cout << "  seckeyID = " << readNode.seckeyID << endl;
+        cout << "  clientID = " << readNode.clientID << endl;
+        cout << "  serverID = " << readNode.serverID << endl;
+        cout << "  seckey   = " << readNode.seckey << endl;
+
+        if (readNode.seckeyID == 88 &&
+            strcmp(readNode.clientID, "1111") == 0 &&
+            strcmp(readNode.seckey, node.seckey) == 0)
+            cout << ">>> 测试4通过: 共享内存读写一致!" << endl;
+        else
+            cout << ">>> 测试4失败: 数据不一致" << endl;
+    }
+    else
+    {
+        cout << ">>> 测试4失败: 读取失败" << endl;
+    }
+
+    shm.printShm();          // 打印全部节点（调试用）
+
+    // 5. 清理：删除共享内存（测试完删掉，不留垃圾）
+    shm.delShm();
+    return 0;
+}
 // ---------- 主函数 ----------
 int main()
 {
     testRequest();     // 测试1：请求报文编解码往返
     testRespond();     // 测试2：应答报文编解码往返
     testNet();         // 测试3：网络收发
+    testShm();			       // share memerory
     return 0;
 }
