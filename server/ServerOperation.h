@@ -7,17 +7,6 @@
 #include "RequestCodec.h"
 
 #include <pthread.h>
-
-// ============================================================
-// ServerOperation —— 服务端业务类（第 8 天）
-//
-// 结构：
-//   main: startWork() 主循环
-//     ├─ TcpServer 监听，accept 每个客户端
-//     └─ 每来一个连接，开一个子线程 working() 处理
-//           ├─ 收数据 → 解码 → 按 cmdType 分发
-//           └─ secKeyAgree()：校验 → r2 → 算密钥 → 写共享内存 → 应答
-// ============================================================
 class ServerOperation
 {
 public:
@@ -27,7 +16,9 @@ public:
     // 服务器开始工作（主循环：accept + 开线程）
     void startWork();
 
-    // 密钥协商处理（子线程里调用）
+    // 密钥协商处理（子线程 working 里调用，所以是 public）
+    // 输入：客户端请求 reqmsg
+    // 输出：应答字节流 outData/outLen
     int secKeyAgree(RequestMsg* reqmsg, char** outData, int& outLen);
 
 private:
@@ -35,14 +26,20 @@ private:
     void getRandString(int len, char* randBuf);
 
 private:
-    int      m_port;      // 监听端口
-    int      m_shmKey;    // 共享内存 key
-    int      m_maxNode;   // 共享内存最大节点数
+    int       m_port;     // 监听端口
+    int       m_shmKey;   // 共享内存 key
+    int       m_maxNode;  // 共享内存最大节点数
     TcpServer m_server;   // 监听器
     SecKeyShm* m_shm;     // 共享内存（写密钥）
 };
 
-// 线程回调函数：必须是全局函数或静态成员（第 8 天）
+// ============================================================
+struct ThreadArg
+{
+    TcpSocket* sock;          // 连接通信对象
+    ServerOperation* server;  // 服务端业务对象
+};
+
 // 处理一个客户端连接
 void* working(void* arg);
 
