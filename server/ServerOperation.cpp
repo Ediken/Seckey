@@ -14,14 +14,25 @@
 #include "RequestFactory.h"
 
 // 构造函数：保存配置，共享内存对象先置空（startWork 里再创建）
-ServerOperation::ServerOperation(int port, int shmKey, int maxNode)
+ServerOperation::ServerOperation(int port, int shmKey, int maxNode,
+                                 const char* dbHost, const char* dbUser,
+                                 const char* dbPasswd, const char* dbName)
 {
     m_port    = port;
     m_shmKey  = shmKey;
     m_maxNode = maxNode;
     m_shm     = NULL;
-}
 
+    // 连接数据库
+    if (m_db.connectDB(dbHost, dbUser, dbPasswd, dbName) == 0)
+    {
+        printf("[服务端] 数据库连接成功: %s/%s\n", dbHost, dbName);
+    }
+    else
+    {
+        printf("[服务端] 数据库连接失败!\n");
+    }
+}
 ServerOperation::~ServerOperation()
 {
     if (m_shm != NULL)
@@ -43,10 +54,6 @@ void ServerOperation::getRandString(int len, char* randBuf)
     randBuf[len - 1] = '\0';
 }
 
-// ------------------------------------------------------------
-// 密钥协商处理（第 8 天流程）
-// 输入：客户端请求 reqmsg
-// 输出：应答字节流 outData/outLen
 // 返回：0=成功 -1=失败
 // ============================================================
 int ServerOperation::secKeyAgree(RequestMsg* reqmsg, char** outData, int& outLen)
@@ -54,8 +61,7 @@ int ServerOperation::secKeyAgree(RequestMsg* reqmsg, char** outData, int& outLen
     // (a) 校验客户端是否合法
     //     教学版简化：固定白名单（clientId="1111" 且 serverId="0001" 合法）
     //     真实项目：查数据库 t_client 表（第 10 天 MysqlOP）
-    if (strcmp(reqmsg->clientId, "1111") != 0 ||
-        strcmp(reqmsg->serverId, "0001") != 0)
+    if (m_db.checkClient(reqmsg->clientId, reqmsg->serverId) != 0)
     {
         printf("[服务端] 客户端不合法, 拒绝服务!\n");
 
@@ -148,6 +154,14 @@ int ServerOperation::secKeyAgree(RequestMsg* reqmsg, char** outData, int& outLen
     m_shm->shmWrite(&node);
     printf("[服务端] 密钥已写入共享内存, seckeyid=%d\n", seckeyid);
     m_shm->printShm();
+    if (m_db.writeSecKey(reqmsg->clientId, reqmsg->serverId, seckey) == 0)
+    {
+        printf("[服务端] 密钥已写入数据库!\n");
+    }
+    else
+    {
+        printf("[服务端] 密钥写数据库失败!\n");
+    }
 
     // (g) 组应答（rv=0 成功, r2 发回客户端, seckeyid 一起发）
     RespondMsg rsp;

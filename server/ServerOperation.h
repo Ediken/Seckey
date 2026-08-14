@@ -5,13 +5,11 @@
 #include "TcpSocket.h"
 #include "SecKeyShm.h"
 #include "RequestCodec.h"
-
+#include "MysqlOP.h"    
 #include <pthread.h>
 class ServerOperation
 {
 public:
-    ServerOperation(int port, int shmKey, int maxNode);
-    ~ServerOperation();
 
     // 服务器开始工作（主循环：accept + 开线程）
     void startWork();
@@ -20,7 +18,10 @@ public:
     // 输入：客户端请求 reqmsg
     // 输出：应答字节流 outData/outLen
     int secKeyAgree(RequestMsg* reqmsg, char** outData, int& outLen);
-
+    ServerOperation(int port, int shmKey, int maxNode,
+                    const char* dbHost, const char* dbUser,
+                    const char* dbPasswd, const char* dbName);   // 新增重载
+    ~ServerOperation();
 private:
     // 生成随机字符串（r2）
     void getRandString(int len, char* randBuf);
@@ -31,6 +32,7 @@ private:
     int       m_maxNode;  // 共享内存最大节点数
     TcpServer m_server;   // 监听器
     SecKeyShm* m_shm;     // 共享内存（写密钥）
+    MysqlOP m_db;        // 数据库操作对象
 };
 
 // ============================================================

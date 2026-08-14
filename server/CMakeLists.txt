@@ -9,6 +9,8 @@ add_executable(seckey_server ${SERVER_SRC})
 
 # 链接 common 静态库 + openssl crypto 库
 target_link_libraries(seckey_server common)
+target_link_libraries(seckey_server mysqlclient)
+target_include_directories(seckey_server PRIVATE /usr/include/mysql)
 target_link_libraries(seckey_server crypto)
 
 # 头文件搜索路径：本目录

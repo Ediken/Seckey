@@ -11,6 +11,8 @@ aux_source_directory(shm   COMMON_SRC)
 aux_source_directory(log   COMMON_SRC)
 aux_source_directory(crypto COMMON_SRC)
 
+aux_source_directory(db COMMON_SRC)
+
 # 生成静态库 libcommon.a
 # add_library(名字 STATIC 源文件...)
 add_library(common STATIC ${COMMON_SRC})
@@ -26,4 +28,6 @@ target_include_directories(common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/shm
     ${CMAKE_CURRENT_SOURCE_DIR}/log
     ${CMAKE_CURRENT_SOURCE_DIR}/crypto
+    ${CMAKE_CURRENT_SOURCE_DIR}/db
+    /usr/include/mysql
 )# 别的目录 #include "xxx.h" 时，能在这里找到

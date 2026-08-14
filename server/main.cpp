@@ -1,17 +1,22 @@
-// 服务端主程序
 #include <stdio.h>
 #include <string.h>
 #include "ServerOperation.h"
 
 int main()
 {
-    // 服务端配置（教学版写死，与客户端约定一致）
-    int port    = 9898;      // 监听端口（客户端连这个）
-    int shmKey  = 0x7788;    // 共享内存 key（与客户端一致）
-    int maxNode = 10;        // 共享内存最大节点数
+    // 服务端配置
+    int port    = 9898;
+    int shmKey  = 0x7788;
+    int maxNode = 10;
 
-    ServerOperation server(port, shmKey, maxNode);
-    server.startWork();      // 开始监听（阻塞）
+    // 数据库配置（与你本机 MySQL 一致）
+    const char* dbHost   = "127.0.0.1";
+    const char* dbUser   = "root";
+    const char* dbPasswd = "123456";   
+    const char* dbName   = "seckeydb";
 
+    ServerOperation server(port, shmKey, maxNode,
+                           dbHost, dbUser, dbPasswd, dbName);
+    server.startWork();
     return 0;
 }
